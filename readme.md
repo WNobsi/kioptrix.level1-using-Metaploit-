@@ -50,7 +50,6 @@ The first step was to identify the IP address of the target machine on the local
 ```bash
 sudo netdiscover -r 192.168.126.0/24
 ```
-![NetdiscoverScan](https://github.com/WNobsi/kioptrix.level1-using-Metaploit-/blob/61b1e8da44e88428b31cd401e964ad8088326fea/images/scan_netdiscover.png)
 
 ### Option 2: Using Nmap Ping Sweep
 
@@ -293,7 +292,8 @@ Based on the reconnaissance results, the likely order of investigation would be:
 - RPC Services (Ports 111 and 32768)
 - SSH (Port 22) 
 
-The scan reveals multiple outdated services, suggesting there may be several valid paths to compromise the target. The next phase should focus on thorough enumeration of each exposed service before attempting exploitation.
+The scan reveals multiple outdated services, suggesting there may be several valid paths to compromise the target. The next phase should focus on thorough enumeration of each exposed service before attempting exploitation.---
+
 # Enumerating HTTP and HTTPS (Port 80 and 443)
 
 ## Web Enumeration with Nikto
@@ -553,6 +553,332 @@ We find:
 - https://github.com/heltonWernik/OpenLuck
 
 
-## Enumerating SMB (Port 139)
+# Enumerating SMB (Port 139)
 
-Now
+During the initial Nmap reconnaissance, SMB services were identified on port **139/tcp**. Since SMB is frequently a valuable source of information disclosure and potential attack vectors, further enumeration was performed using Metasploit's SMB version scanner.
+
+### SMB Version Enumeration
+
+#### Metasploit Module
+
+```bash
+use auxiliary/scanner/smb/smb_version
+```
+
+### Configure Target
+
+```bash
+set RHOSTS 192.168.126.129
+```
+
+### Execute Scan
+
+```bash
+run
+```
+
+---
+
+## Scan Results
+
+### Output
+
+```text
+192.168.126.129:139 - Host could not be identified: Unix (Samba 2.2.1a)
+```
+
+### Summary
+
+| Field            | Value           |
+| ---------------- | --------------- |
+| Target Host      | 192.168.126.129 |
+| Target Port      | 139             |
+| Service          | SMB             |
+| Operating System | Unix            |
+| SMB Software     | Samba           |
+| Samba Version    | 2.2.1a          |
+
+---
+
+### Samba Version Analysis
+
+Nikto and Nmap previously revealed that the target system is running several legacy services. This SMB enumeration further confirms that the target is running an extremely old version of Samba.
+
+Detected Version:
+
+```text
+Samba 2.2.1a
+```
+
+### Initial Observations
+
+* Samba version is significantly outdated.
+* Running on a Unix/Linux host.
+* Falls within a range of historically vulnerable Samba releases.
+* Likely installed as part of the original operating system build rather than a modern package update.
+
+---
+
+### Why This Finding Is Important
+
+SMB services are often among the most valuable enumeration targets because they can provide:
+
+* Shared directories
+* User account information
+* Host configuration details
+* Authentication weaknesses
+* Known service vulnerabilities
+
+In this case, the identified Samba version is particularly noteworthy due to its age.
+
+### Historical Context
+
+```text
+Samba 2.2.1a
+```
+
+belongs to a generation of Samba releases that are no longer supported and have been associated with multiple security issues over time.
+
+Older Samba deployments frequently expose:
+
+* Anonymous shares
+* Weak permissions
+* Information disclosure
+* Remote vulnerabilities
+* Misconfigured authentication mechanisms
+
+### SMB Share Enumeration with SMBClient
+
+After identifying **Samba 2.2.1a**, SMB shares were enumerated using the `smbclient` utility to determine whether anonymous access was permitted.
+
+#### Enumerating Available Shares
+
+```bash
+smbclient -L //192.168.126.129/
+```
+
+### Findings
+
+Anonymous authentication was successful:
+
+```text
+Anonymous login successful
+```
+
+The following shares were discovered:
+
+| Share Name | Type | Description                |
+| ---------- | ---- | -------------------------- |
+| IPC$       | IPC  | IPC Service (Samba Server) |
+| ADMIN$     | IPC  | IPC Service (Samba Server) |
+
+Additional information obtained:
+
+| Property    | Value    |
+| ----------- | -------- |
+| Server Name | KIOPTRIX |
+| Workgroup   | MYGROUP  |
+
+### Observations
+
+* SMB allows anonymous (null session) authentication.
+* The host name was identified as **KIOPTRIX**.
+* The system belongs to the **MYGROUP** workgroup.
+* Presence of anonymous access confirms the Samba service is configured with relatively weak security settings.
+
+---
+
+### Accessing Individual Shares
+
+#### ADMIN$ Share
+
+```bash
+smbclient //192.168.126.129/ADMIN$
+```
+
+Result:
+
+```text
+tree connect failed: NT_STATUS_WRONG_PASSWORD
+```
+
+The ADMIN$ share exists but does not allow anonymous access.
+
+#### IPC$ Share
+
+```bash
+smbclient //192.168.126.129/IPC$
+```
+
+Result:
+
+```text
+Anonymous login successful
+smb: \>
+```
+
+The IPC$ share was successfully accessed using anonymous authentication.
+
+### smbclient Assessment
+
+This enumeration confirms that the Samba server permits **null-session access** and exposes the **IPC$ share** without credentials. While ADMIN$ remains protected, anonymous access to IPC$ can often provide useful information during further SMB enumeration and reinforces the finding that the target is running a legacy Samba configuration with relaxed security controls.
+
+
+
+---
+
+### Pentester's Assessment
+
+From a penetration testing perspective, SMB has emerged as one of the most promising attack surfaces discovered during reconnaissance.
+
+The combination of:
+
+- Samba 2.2.1a
+- Anonymous SMB access
+- Accessible IPC$ share
+ - Legacy Linux environment
+
+strongly suggests that SMB deserves continued investigation before pursuing exploitation through other services.
+
+At this stage, SMB enumeration has already provided valuable intelligence about the target and may ultimately offer a direct path to compromise through either:
+
+- Misconfigured shares
+- Weak authentication controls
+- Information disclosure
+- Historical Samba vulnerabilities
+
+Based on the evidence collected so far, SMB remains one of the highest-priority services for further enumeration alongside the vulnerable Apache/mod_ssl web stack.
+
+---
+
+# Key Findings from Reconnaissance & Enumeration
+
+### Host Discovery
+
+* Target identified as **192.168.126.129**.
+* Host is running a **legacy Linux 2.4.x kernel**.
+
+### Open Services Discovered
+
+| Port  | Service    | Version                       |
+| ----- | ---------- | ----------------------------- |
+| 22    | SSH        | OpenSSH 2.9p2                 |
+| 80    | HTTP       | Apache 1.3.20                 |
+| 111   | RPCBind    | RPC Service                   |
+| 139   | SMB        | Samba 2.2.1a                  |
+| 443   | HTTPS      | Apache 1.3.20 + mod_ssl 2.8.4 |
+| 32768 | RPC Status | RPC #100024                   |
+
+### Critical Web Enumeration Findings
+
+* Apache version **1.3.20** is severely outdated.
+* **mod_ssl 2.8.4** falls within a historically vulnerable version range associated with remote buffer overflow vulnerabilities.
+* **OpenSSL 0.9.6b** is outdated and potentially vulnerable.
+* HTTP **TRACE** method is enabled.
+* Accessible Apache documentation and default files discovered.
+* Interesting file identified:
+
+  * `/test.php`
+
+### Critical SMB Enumeration Findings
+
+* SMB service identified as **Samba 2.2.1a**.
+* Anonymous (null-session) authentication allowed.
+* Hostname discovered:
+
+  * **KIOPTRIX**
+* Workgroup identified:
+
+  * **MYGROUP**
+* Accessible SMB share:
+
+  * **IPC$**
+* Protected SMB share:
+
+  * **ADMIN$**
+
+### Security Weaknesses Identified
+
+* SSH supports deprecated **SSHv1**.
+* SSLv2 enabled with multiple weak ciphers.
+* Expired self-signed SSL certificate.
+* Multiple missing security headers.
+* Legacy software versions present across all exposed services.
+
+### Highest Value Attack Surfaces
+
+1. **Apache + mod_ssl (Ports 80/443)** (Juicy)
+
+   * Outdated Apache 1.3.20
+   * Vulnerable mod_ssl 2.8.4
+   * Weak OpenSSL implementation
+ 
+
+
+2. **SMB / Samba (Port 139)** (Juiciest)
+
+   * Samba 2.2.1a
+   * Anonymous access permitted
+   * IPC$ share accessible
+
+3. **RPC Services (Ports 111 & 32768)** (Backup plan)
+
+   * Potential for additional service enumeration and information disclosure
+
+### Overall Assessment
+
+The reconnaissance and enumeration phases reveal a deliberately outdated Linux environment exposing multiple legacy services. The strongest attack vectors identified are the **Apache/mod_ssl stack** and the **Samba 2.2.1a service with anonymous SMB access**, both of which warrant focused investigation during the exploitation phase.
+
+---
+
+# Exploitation
+
+Following the reconnaissance and enumeration phases, the next step is to evaluate the discovered attack surfaces and determine whether any of the identified services are associated with known vulnerabilities or publicly available exploits.
+
+Rather than attempting random attacks, a penetration tester should leverage the information gathered during enumeration to perform targeted research against the specific software versions identified on the target. This approach helps prioritize the most promising attack vectors and improves the likelihood of successful exploitation.
+
+During our investigation, two services stood out due to their age, historical significance, and known vulnerability history:
+
+* **Apache 1.3.20 with mod_ssl 2.8.4 and OpenSSL 0.9.6b**
+* **Samba 2.2.1a**
+
+Researching these versions revealed publicly documented vulnerabilities and exploit references that closely match the software identified during enumeration.
+
+## Potential Attack Surface #1 - mod_ssl 2.8.4
+
+The web server was found to be running:
+
+```text id="ek1w1n"
+Apache 1.3.20
+mod_ssl 2.8.4
+OpenSSL 0.9.6b
+```
+
+During vulnerability research, the following references were identified:
+
+* Exploit-DB: [https://www.exploit-db.com/exploits/21671](https://www.exploit-db.com/exploits/21671)
+* OpenLuck Exploit: [https://github.com/heltonWernik/OpenLuck](https://github.com/heltonWernik/OpenLuck)
+
+These resources describe vulnerabilities affecting legacy Apache/mod_ssl installations and provide proof-of-concept code capable of targeting vulnerable systems.
+
+---
+
+## Potential Attack Surface #2 - Samba 2.2.1a
+
+SMB enumeration identified the target as:
+
+```text id="gcn8hy"
+Unix (Samba 2.2.1a)
+```
+
+Research into this version revealed a well-known Samba vulnerability associated with the `trans2open` functionality.
+
+Reference:
+
+* Rapid7 Module: [https://www.rapid7.com/db/modules/exploit/linux/samba/trans2open/](https://www.rapid7.com/db/modules/exploit/linux/samba/trans2open/)
+
+This vulnerability affects older Samba releases and has historically been leveraged to achieve remote code execution against vulnerable systems.
+
+---
+
+At this stage, both the **mod_ssl** and **Samba** attack surfaces appear viable candidates for exploitation. The following sections will evaluate each path individually, validate whether the target is vulnerable, and attempt to obtain an initial foothold on the system.
