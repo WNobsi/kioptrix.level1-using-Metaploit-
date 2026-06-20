@@ -50,6 +50,7 @@ The first step was to identify the IP address of the target machine on the local
 ```bash
 sudo netdiscover -r 192.168.126.0/24
 ```
+![NetdiscoverScan](https://github.com/WNobsi/kioptrix.level1-using-Metaploit-/blob/61b1e8da44e88428b31cd401e964ad8088326fea/images/scan_netdiscover.png)
 
 #### Option 2: Using Nmap Ping Sweep
 
